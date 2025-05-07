@@ -22,7 +22,5 @@ public class Item {
     private String name;
     private String description;
     private String status;
-
-    // Add email regex validation
     private String email;
 }

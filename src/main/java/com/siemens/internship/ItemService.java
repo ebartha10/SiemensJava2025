@@ -1,5 +1,6 @@
 package com.siemens.internship;
 
+import com.siemens.internship.validators.EmailValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -8,14 +9,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class ItemService {
     @Autowired
     private ItemRepository itemRepository;
+
+    private final EmailValidator emailValidator;
     private static ExecutorService executor = Executors.newFixedThreadPool(10);
-    private List<Item> processedItems = new ArrayList<>();
-    private int processedCount = 0;
+
+    // removed processed items
+    private AtomicInteger processedCount = new AtomicInteger(0);
+
+    public ItemService() {
+        this.emailValidator =  new EmailValidator();
+    }
 
 
     public List<Item> findAll() {
@@ -27,6 +36,10 @@ public class ItemService {
     }
 
     public Item save(Item item) {
+        // Validate email format
+        if(!emailValidator.validate(item.getEmail())) {
+            throw new IllegalArgumentException("Invalid email format");
+        }
         return itemRepository.save(item);
     }
 
@@ -54,33 +67,48 @@ public class ItemService {
      * Consider the interaction between Spring's @Async and CompletableFuture
      */
     @Async
-    public List<Item> processItemsAsync() {
+    public CompletableFuture<List<Item>> processItemsAsync() {
 
         List<Long> itemIds = itemRepository.findAllIds();
 
+        List<CompletableFuture<Item>> futures = new ArrayList<>();
+        // we modified the runAsync with the supplyAsync and then collect the results.
         for (Long id : itemIds) {
-            CompletableFuture.runAsync(() -> {
-                try {
-                    Thread.sleep(100);
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                    // removed thread sleep
 
                     Item item = itemRepository.findById(id).orElse(null);
                     if (item == null) {
-                        return;
+                        return null;
                     }
 
-                    processedCount++;
-
+                    processedCount.incrementAndGet();
+                    // logic is the same
                     item.setStatus("PROCESSED");
                     itemRepository.save(item);
-                    processedItems.add(item);
+                    return item;
 
-                } catch (InterruptedException e) {
-                    System.out.println("Error: " + e.getMessage());
-                }
-            }, executor);
+            }, executor));
         }
 
-        return processedItems;
+        // collect the results of all futures
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))       // intialise as a CompletableFuture array
+                .thenApply(v -> {
+                    List<Item> result = new ArrayList<>();
+                    for (CompletableFuture<Item> future : futures) {
+                        try {
+                            Item item = future.get();
+                            if (item != null) {
+                                result.add(item);
+                            }
+                        } catch (InterruptedException | ExecutionException e) {
+                            // handle exceptions
+
+                            e.printStackTrace();
+                        }
+                    }
+                    return result;
+                });
     }
 
 }

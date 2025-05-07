@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-class InternshipApplicationTests {
+class ItemServiceTest {
     @Mock
     private ItemRepository itemRepository;
 
